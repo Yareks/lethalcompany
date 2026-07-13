@@ -15,6 +15,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Reference Include="UnityEngine">
+      <HintPath>../UnityEngine.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
     <Reference Include="UnityEngine.CoreModule">
       <HintPath>../UnityEngine.CoreModule.dll</HintPath>
       <Private>false</Private>
