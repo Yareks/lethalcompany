@@ -9,7 +9,7 @@ public sealed class Plugin : BaseUnityPlugin
 {
     public const string PluginGuid = "ru.yareks.lethalcompany.hungerbar";
     public const string PluginName = "Hunger Bar";
-    public const string PluginVersion = "1.0.0";
+    public const string PluginVersion = "1.0.1";
 
     private ConfigEntry<float> _fullDurationMinutes = null!;
     private ConfigEntry<float> _rightOffset = null!;
@@ -17,6 +17,9 @@ public sealed class Plugin : BaseUnityPlugin
     private ConfigEntry<bool> _showPercentage = null!;
     private float _hunger = 1f;
     private GUIStyle? _labelStyle;
+    private float _nextStatusLogTime;
+    private bool _updateLogged;
+    private bool _guiLogged;
 
     /// <summary>Current hunger from 0 (empty) to 1 (full).</summary>
     public static float Current { get; private set; } = 1f;
@@ -37,17 +40,31 @@ public sealed class Plugin : BaseUnityPlugin
             "Show the hunger percentage next to the bar.");
 
         Current = _hunger;
-        Logger.LogInfo($"{PluginName} {PluginVersion} loaded");
+        Logger.LogInfo($"{PluginName} {PluginVersion} loaded successfully");
+        Logger.LogInfo($"Settings: duration={_fullDurationMinutes.Value:F1} min, rightOffset={_rightOffset.Value:F0}px, barHeight={_barHeight.Value:F0}px, percentage={_showPercentage.Value}");
+        Logger.LogInfo("The hunger bar should appear at the right side of the screen. Diagnostics will be written every 10 seconds.");
     }
 
     private void Update()
     {
-        if (Time.timeScale <= 0f || _hunger <= 0f)
-            return;
+        if (!_updateLogged)
+        {
+            _updateLogged = true;
+            Logger.LogInfo("Update is running");
+        }
 
-        float seconds = Mathf.Max(1f, _fullDurationMinutes.Value * 60f);
-        _hunger = Mathf.Clamp01(_hunger - Time.unscaledDeltaTime / seconds);
-        Current = _hunger;
+        if (Time.timeScale > 0f && _hunger > 0f)
+        {
+            float seconds = Mathf.Max(1f, _fullDurationMinutes.Value * 60f);
+            _hunger = Mathf.Clamp01(_hunger - Time.unscaledDeltaTime / seconds);
+            Current = _hunger;
+        }
+
+        if (Time.unscaledTime >= _nextStatusLogTime)
+        {
+            _nextStatusLogTime = Time.unscaledTime + 10f;
+            Logger.LogInfo($"Status: hunger={_hunger * 100f:F1}%, screen={Screen.width}x{Screen.height}, timeScale={Time.timeScale:F2}, OnGUI={_guiLogged}");
+        }
     }
 
     /// <summary>Adds hunger. Useful for food-item mods.</summary>
@@ -63,6 +80,15 @@ public sealed class Plugin : BaseUnityPlugin
 
     private void OnGUI()
     {
+        // Draw after the game's IMGUI so the bar cannot be hidden behind another overlay.
+        GUI.depth = -1000;
+
+        if (!_guiLogged)
+        {
+            _guiLogged = true;
+            Logger.LogInfo($"OnGUI is running; first draw at resolution {Screen.width}x{Screen.height}");
+        }
+
         const float width = 24f;
         float height = Mathf.Clamp(_barHeight.Value, 100f, Screen.height - 80f);
         float x = Screen.width - Mathf.Max(0f, _rightOffset.Value) - width;
