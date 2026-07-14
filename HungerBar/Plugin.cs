@@ -12,12 +12,18 @@ public sealed class Plugin : BaseUnityPlugin
 {
     public const string PluginGuid = "ru.yareks.lethalcompany.hungerbar";
     public const string PluginName = "Hunger Bar";
-    public const string PluginVersion = "1.6.1";
+    public const string PluginVersion = "1.7.0";
 
     internal static ManualLogSource Log = null!;
     internal static float DrainPerSecond { get; private set; } = 0.25f;
-    internal static float RightOffset { get; private set; } = 24f;
-    internal static float BarHeight { get; private set; } = 260f;
+    internal static float RightOffset => RightOffsetConfig.Value;
+    internal static float BarHeight => BarHeightConfig.Value;
+    internal static ConfigEntry<float> RightOffsetConfig = null!;
+    internal static ConfigEntry<float> BarHeightConfig = null!;
+    internal static ConfigEntry<float> HeldOffsetYConfig = null!;
+    internal static ConfigEntry<float> HeldRotationZConfig = null!;
+    internal static ConfigEntry<float> FloorOffsetYConfig = null!;
+    internal static ConfigEntry<float> FloorScaleConfig = null!;
 
     public static float Current { get; private set; } = 1f;
 
@@ -26,14 +32,20 @@ public sealed class Plugin : BaseUnityPlugin
         Log = Logger;
         ConfigEntry<float> drain = Config.Bind("Hunger", "DrainPerSecond", 0.25f,
             "Hunger points lost per second (the full bar contains 100 points).");
-        ConfigEntry<float> rightOffset = Config.Bind("Interface", "RightOffset", 24f,
+        RightOffsetConfig = Config.Bind("Interface", "RightOffset", 24f,
             "Distance in pixels from the right edge.");
-        ConfigEntry<float> barHeight = Config.Bind("Interface", "BarHeight", 260f,
+        BarHeightConfig = Config.Bind("Interface", "BarHeight", 260f,
             "Bar height in pixels.");
+        HeldOffsetYConfig = Config.Bind("Mushroom", "HeldOffsetY", 0.04f,
+            "Vertical mushroom visual offset while held.");
+        HeldRotationZConfig = Config.Bind("Mushroom", "HeldRotationZ", 180f,
+            "Mushroom Z rotation while held.");
+        FloorOffsetYConfig = Config.Bind("Mushroom", "FloorOffsetY", -0.25f,
+            "Visual Y offset while the mushroom is on the floor.");
+        FloorScaleConfig = Config.Bind("Mushroom", "FloorScale", 1.6f,
+            "Mushroom scale while on the floor.");
 
         DrainPerSecond = Mathf.Max(0f, drain.Value);
-        RightOffset = Mathf.Max(0f, rightOffset.Value);
-        BarHeight = Mathf.Max(100f, barHeight.Value);
 
         Logger.LogInfo($"{PluginName} {PluginVersion} loaded successfully");
         Logger.LogInfo($"Settings: hunger=100 points, drain={DrainPerSecond:F2}/sec, rightOffset={RightOffset:F0}px, barHeight={BarHeight:F0}px");
@@ -75,7 +87,12 @@ internal static class HudManagerUpdatePatch
         }
 
         HungerHud.EnsureCreated();
-        Plugin.Tick(Time.unscaledDeltaTime);
+        bool inGame = GameNetworkManager.Instance != null &&
+            GameNetworkManager.Instance.localPlayerController != null &&
+            GameNetworkManager.Instance.localPlayerController.isPlayerControlled;
+        HungerHud.SetVisible(inGame);
+        if (inGame)
+            Plugin.Tick(Time.unscaledDeltaTime);
 
         if (Time.unscaledTime >= _nextLogTime)
         {
@@ -140,6 +157,12 @@ internal static class HungerHud
                 Object.Destroy(_root);
             _root = null;
         }
+    }
+
+    internal static void SetVisible(bool visible)
+    {
+        if (_root != null && _root.activeSelf != visible)
+            _root.SetActive(visible);
     }
 
     internal static void SetValue(float value)
