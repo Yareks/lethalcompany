@@ -47,5 +47,9 @@
       <HintPath>../Assembly-CSharp.dll</HintPath>
       <Private>false</Private>
     </Reference>
+    <Reference Include="Unity.Netcode.Runtime">
+      <HintPath>../Unity.Netcode.Runtime.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
   </ItemGroup>
 </Project>
