@@ -383,7 +383,8 @@ internal sealed class MushroomFoodController : MonoBehaviour
             return;
         }
 
-        if (!Input.GetMouseButton(0))
+        bool leftMouseHeld = Mouse.current != null && Mouse.current.leftButton.isPressed;
+        if (!leftMouseHeld)
         {
             ResetEating();
             return;
