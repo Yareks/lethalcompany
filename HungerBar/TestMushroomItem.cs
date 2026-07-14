@@ -81,6 +81,7 @@ internal static class MushroomFactory
     internal static GrabbableObject Create(PlayerControllerB player)
     {
         GameObject root = new("TestLowPolyMushroom");
+        root.SetActive(false); // Configure Item before GrabbableObject receives Unity callbacks.
         root.transform.position = player.transform.position;
         root.layer = 6;
 
