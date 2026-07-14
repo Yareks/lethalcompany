@@ -97,6 +97,7 @@ internal static class MushroomFactory
 
         GameObject root = Object.Instantiate(template.spawnPrefab, player.transform.position, Quaternion.identity);
         root.name = "TestLowPolyMushroom";
+        root.layer = 6; // Props layer rendered by the first-person item camera.
         GrabbableObject grabbable = root.GetComponent<GrabbableObject>();
         Unity.Netcode.NetworkObject networkObject = root.GetComponent<Unity.Netcode.NetworkObject>();
 
@@ -112,19 +113,25 @@ internal static class MushroomFactory
         properties.verticalOffset = 0.08f;
         grabbable.itemProperties = properties;
 
-        foreach (Renderer renderer in root.GetComponentsInChildren<Renderer>(true))
+        Renderer[] originalRenderers = root.GetComponentsInChildren<Renderer>(true);
+        foreach (Renderer renderer in originalRenderers)
             renderer.enabled = false;
 
         Material stemMaterial = MakeMaterial(new Color(0.55f, 0.48f, 0.34f, 1f), 0.15f);
         Material capMaterial = MakeMaterial(new Color(0.67f, 0.16f, 0.06f, 1f), 0.1f);
         Material glowMaterial = MakeMaterial(new Color(0.36f, 0.85f, 0.18f, 1f), 0.3f);
 
-        CreateMeshPart("MushroomStem", root.transform,
+        GameObject stem = CreateMeshPart("MushroomStem", root.transform,
             LowPolyMeshes.CreateTaperedCylinder(8, 0.13f, 0.19f, 0.52f),
-            stemMaterial, new Vector3(0f, 0.25f, 0f));
-        CreateMeshPart("MushroomCap", root.transform,
+            stemMaterial, new Vector3(0f, 0.25f, 0f), root.layer);
+        GameObject cap = CreateMeshPart("MushroomCap", root.transform,
             LowPolyMeshes.CreateCap(10, 3, 0.38f, 0.20f),
-            capMaterial, new Vector3(0f, 0.56f, 0f));
+            capMaterial, new Vector3(0f, 0.56f, 0f), root.layer);
+
+        System.Collections.Generic.List<Renderer> mushroomRenderers = new()
+        {
+            stem.GetComponent<Renderer>(), cap.GetComponent<Renderer>()
+        };
 
         Vector3[] spots =
         {
@@ -138,23 +145,31 @@ internal static class MushroomFactory
             spot.transform.SetParent(root.transform, false);
             spot.transform.localPosition = position;
             spot.transform.localScale = new Vector3(0.055f, 0.025f, 0.055f);
-            spot.GetComponent<Renderer>().sharedMaterial = glowMaterial;
+            spot.layer = root.layer;
+            Renderer spotRenderer = spot.GetComponent<Renderer>();
+            spotRenderer.sharedMaterial = glowMaterial;
+            mushroomRenderers.Add(spotRenderer);
             Object.Destroy(spot.GetComponent<Collider>());
         }
+
+        MushroomVisualController visualController = root.AddComponent<MushroomVisualController>();
+        visualController.Initialize(grabbable, mushroomRenderers.ToArray(), originalRenderers);
 
         // A valid NetworkObject is essential: inventory drop and switch RPCs pass its reference.
         if (!networkObject.IsSpawned)
             networkObject.Spawn(false);
 
+        Plugin.Log.LogInfo($"Mushroom made from procedural low-poly meshes: renderers={mushroomRenderers.Count}, layer={root.layer}");
         Plugin.Log.LogInfo($"Mushroom cloned from network prefab '{template.itemName}', networkId={networkObject.NetworkObjectId}");
         return grabbable;
     }
 
-    private static GameObject CreateMeshPart(string name, Transform parent, Mesh mesh, Material material, Vector3 position)
+    private static GameObject CreateMeshPart(string name, Transform parent, Mesh mesh, Material material, Vector3 position, int layer)
     {
         GameObject part = new(name, typeof(MeshFilter), typeof(MeshRenderer));
         part.transform.SetParent(parent, false);
         part.transform.localPosition = position;
+        part.layer = layer;
         part.GetComponent<MeshFilter>().sharedMesh = mesh;
         part.GetComponent<MeshRenderer>().sharedMaterial = material;
         return part;
@@ -169,6 +184,51 @@ internal static class MushroomFactory
         if (material.HasProperty("_Metallic")) material.SetFloat("_Metallic", metallic);
         if (material.HasProperty("_Smoothness")) material.SetFloat("_Smoothness", 0.18f);
         return material;
+    }
+}
+
+internal sealed class MushroomVisualController : MonoBehaviour
+{
+    private GrabbableObject? _item;
+    private Renderer[] _renderers = System.Array.Empty<Renderer>();
+    private Renderer[] _originalRenderers = System.Array.Empty<Renderer>();
+    private bool _lastVisible = true;
+
+    internal void Initialize(GrabbableObject item, Renderer[] renderers, Renderer[] originalRenderers)
+    {
+        _item = item;
+        _renderers = renderers;
+        _originalRenderers = originalRenderers;
+        SetVisible(true);
+    }
+
+    private void LateUpdate()
+    {
+        if (_item == null)
+            return;
+
+        // The base prefab only knows about its original renderer. Keep our generated
+        // mesh in sync when the item is selected or pocketed.
+        foreach (Renderer original in _originalRenderers)
+            if (original != null && original.enabled)
+                original.enabled = false;
+
+        bool visible = !_item.isPocketed;
+        if (visible != _lastVisible)
+            SetVisible(visible);
+    }
+
+    private void SetVisible(bool visible)
+    {
+        _lastVisible = visible;
+        foreach (Renderer renderer in _renderers)
+        {
+            if (renderer != null)
+            {
+                renderer.gameObject.layer = 6;
+                renderer.enabled = visible;
+            }
+        }
     }
 }
 
