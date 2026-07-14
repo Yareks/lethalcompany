@@ -96,6 +96,15 @@ internal static class GiveMushroomOnJoinPatch
                 Plugin.Log.LogWarning($"Pickup RPC did not fill ItemSlots; applying safe local fallback to slot {actualSlot}");
             }
 
+            // Complete the normal held-item state before switching. Without parentObject,
+            // the mesh remains at its world position instead of following the hand.
+            mushroom!.playerHeldBy = player;
+            mushroom.parentObject = player.localItemHolder;
+            mushroom.transform.SetParent(player.localItemHolder, false);
+            mushroom.isHeld = true;
+            mushroom.isPocketed = false;
+            mushroom.EnablePhysics(false);
+
             System.Reflection.MethodInfo? switchMethod = AccessTools.Method(
                 typeof(PlayerControllerB), "SwitchToItemSlot",
                 new[] { typeof(int), typeof(GrabbableObject) });
@@ -119,10 +128,15 @@ internal static class MushroomFactory
         Item? template = null;
         foreach (Item item in StartOfRound.Instance.allItemsList.itemsList)
         {
-            if (item != null && item.spawnPrefab != null &&
-                item.spawnPrefab.GetComponent<GrabbableObject>() != null &&
+            if (item == null || item.spawnPrefab == null)
+                continue;
+
+            GrabbableObject candidate = item.spawnPrefab.GetComponent<GrabbableObject>();
+            if (candidate != null && candidate.GetType().Name == "PhysicsProp" &&
                 item.spawnPrefab.GetComponent<Unity.Netcode.NetworkObject>() != null)
             {
+                // PhysicsProp is the game's neutral, ordinary inventory scrap type.
+                // Equipment such as Binoculars/BeltBag uses special slots and actions.
                 template = item;
                 break;
             }
@@ -143,10 +157,11 @@ internal static class MushroomFactory
         properties.canBeGrabbedBeforeGameStart = true;
         properties.twoHanded = false;
         properties.weight = 1.05f;
-        properties.positionOffset = new Vector3(0.05f, 0.08f, -0.12f);
-        properties.rotationOffset = new Vector3(5f, 0f, -12f);
+        properties.positionOffset = new Vector3(0.02f, 0.02f, -0.08f);
+        properties.rotationOffset = Vector3.zero;
         properties.restingRotation = new Vector3(0f, 0f, 90f);
         properties.verticalOffset = 0.08f;
+        properties.toolTips = System.Array.Empty<string>();
         grabbable.itemProperties = properties;
 
         Renderer[] originalRenderers = root.GetComponentsInChildren<Renderer>(true);
@@ -157,12 +172,13 @@ internal static class MushroomFactory
         Material capMaterial = MakeMaterial(new Color(0.67f, 0.16f, 0.06f, 1f), 0.1f);
         Material glowMaterial = MakeMaterial(new Color(0.36f, 0.85f, 0.18f, 1f), 0.3f);
 
+        // Origin sits around the grip point so the hand wraps around the stem.
         GameObject stem = CreateMeshPart("MushroomStem", root.transform,
-            LowPolyMeshes.CreateTaperedCylinder(8, 0.13f, 0.19f, 0.52f),
-            stemMaterial, new Vector3(0f, 0.25f, 0f), root.layer);
+            LowPolyMeshes.CreateTaperedCylinder(8, 0.085f, 0.13f, 0.40f),
+            stemMaterial, new Vector3(0f, -0.16f, 0f), root.layer);
         GameObject cap = CreateMeshPart("MushroomCap", root.transform,
-            LowPolyMeshes.CreateCap(10, 3, 0.38f, 0.20f),
-            capMaterial, new Vector3(0f, 0.56f, 0f), root.layer);
+            LowPolyMeshes.CreateCap(12, 3, 0.27f, 0.15f),
+            capMaterial, new Vector3(0f, 0.23f, 0f), root.layer);
 
         System.Collections.Generic.List<Renderer> mushroomRenderers = new()
         {
@@ -171,8 +187,8 @@ internal static class MushroomFactory
 
         Vector3[] spots =
         {
-            new(-0.17f, 0.70f, -0.08f), new(0.16f, 0.68f, -0.10f),
-            new(0.04f, 0.75f, 0.09f), new(-0.25f, 0.62f, 0.05f)
+            new(-0.12f, 0.34f, -0.06f), new(0.12f, 0.33f, -0.07f),
+            new(0.03f, 0.38f, 0.07f), new(-0.18f, 0.29f, 0.04f)
         };
         foreach (Vector3 position in spots)
         {
@@ -223,6 +239,7 @@ internal static class MushroomFactory
     }
 }
 
+[DefaultExecutionOrder(32000)]
 internal sealed class MushroomVisualController : MonoBehaviour
 {
     private GrabbableObject? _item;
