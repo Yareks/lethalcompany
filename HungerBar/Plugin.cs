@@ -12,7 +12,7 @@ public sealed class Plugin : BaseUnityPlugin
 {
     public const string PluginGuid = "ru.yareks.lethalcompany.hungerbar";
     public const string PluginName = "Hunger Bar";
-    public const string PluginVersion = "1.6.0";
+    public const string PluginVersion = "1.6.1";
 
     internal static ManualLogSource Log = null!;
     internal static float DrainPerSecond { get; private set; } = 0.25f;

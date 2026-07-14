@@ -3,6 +3,7 @@ using HarmonyLib;
 using GameNetcodeStuff;
 using Unity.Netcode;
 using UnityEngine;
+using UnityEngine.InputSystem;
 
 namespace HungerBar;
 
@@ -331,8 +332,20 @@ internal sealed class MushroomVisualController : MonoBehaviour
         {
             // Normal size in hand; 30% larger and upright when lying in the world.
             _visualRoot.localScale = _lastHeld ? Vector3.one : Vector3.one * 1.6f;
-            _visualRoot.localPosition = _lastHeld ? new Vector3(0f, 0.12f, 0f) : Vector3.zero;
-            _visualRoot.localRotation = Quaternion.identity;
+            if (_lastHeld)
+            {
+                // The neutral PhysicsProp grip points its local Y axis downward in first person.
+                // Flip the mushroom so the cap is above the hand and the stem is gripped upright.
+                _visualRoot.localPosition = new Vector3(0f, 0.04f, 0f);
+                _visualRoot.localRotation = Quaternion.Euler(0f, 0f, 180f);
+            }
+            else
+            {
+                // Runtime clones inherit the source prefab's floor pivot. Move only our
+                // visual down to place the bottom of the stem directly on the surface.
+                _visualRoot.localPosition = new Vector3(0f, -0.25f, 0f);
+                _visualRoot.localRotation = Quaternion.identity;
+            }
         }
         SetVisible(visible);
     }
