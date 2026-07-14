@@ -47,8 +47,8 @@
       <HintPath>../UnityEngine.ImageConversionModule.dll</HintPath>
       <Private>false</Private>
     </Reference>
-    <Reference Include="UnityEngine.InputLegacyModule">
-      <HintPath>../UnityEngine.InputLegacyModule.dll</HintPath>
+    <Reference Include="Unity.InputSystem">
+      <HintPath>../Unity.InputSystem.dll</HintPath>
       <Private>false</Private>
     </Reference>
     <Reference Include="UnityEngine.UI">
