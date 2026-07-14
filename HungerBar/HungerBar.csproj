@@ -5,13 +5,17 @@
     <Nullable>enable</Nullable>
     <AssemblyName>HungerBar</AssemblyName>
     <RootNamespace>HungerBar</RootNamespace>
-    <Version>1.4.0</Version>
+    <Version>1.5.0</Version>
     <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="BepInEx.Core" Version="5.*" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="../assets/lethal_mushroom.png" Link="Resources/lethal_mushroom.png" LogicalName="HungerBar.Resources.lethal_mushroom.png" />
   </ItemGroup>
 
   <ItemGroup>
@@ -37,6 +41,10 @@
     </Reference>
     <Reference Include="UnityEngine.PhysicsModule">
       <HintPath>../UnityEngine.PhysicsModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.ImageConversionModule">
+      <HintPath>../UnityEngine.ImageConversionModule.dll</HintPath>
       <Private>false</Private>
     </Reference>
     <Reference Include="UnityEngine.UI">

@@ -30,7 +30,7 @@ internal static class GiveMushroomOnJoinPatch
         for (int i = 0; i < player.ItemSlots.Length; i++)
         {
             if (player.ItemSlots[i] != null && player.ItemSlots[i].itemProperties != null &&
-                player.ItemSlots[i].itemProperties.itemName == "Test mushroom")
+                player.ItemSlots[i].itemProperties.itemName == "Mushroom")
             {
                 Plugin.Log.LogInfo("Test mushroom is already in the inventory");
                 yield break;
@@ -153,15 +153,17 @@ internal static class MushroomFactory
 
         // Keep all mandatory prefab references and animation data, changing only identity and visuals.
         Item properties = Object.Instantiate(template);
-        properties.itemName = "Test mushroom";
+        properties.itemName = "Mushroom";
         properties.canBeGrabbedBeforeGameStart = true;
         properties.twoHanded = false;
+        properties.isScrap = false; // Food, not sellable scrap.
         properties.weight = 1.05f;
-        properties.positionOffset = new Vector3(0.02f, 0.02f, -0.08f);
+        properties.positionOffset = new Vector3(0f, -0.08f, 0.02f);
         properties.rotationOffset = Vector3.zero;
-        properties.restingRotation = new Vector3(0f, 0f, 90f);
-        properties.verticalOffset = 0.08f;
+        properties.restingRotation = Vector3.zero; // Y-up model stands on its stem.
+        properties.verticalOffset = 0.22f;
         properties.toolTips = System.Array.Empty<string>();
+        properties.itemIcon = MushroomIcon.Load();
         grabbable.itemProperties = properties;
 
         Renderer[] originalRenderers = root.GetComponentsInChildren<Renderer>(true);
@@ -172,11 +174,16 @@ internal static class MushroomFactory
         Material capMaterial = MakeMaterial(new Color(0.67f, 0.16f, 0.06f, 1f), 0.1f);
         Material glowMaterial = MakeMaterial(new Color(0.36f, 0.85f, 0.18f, 1f), 0.3f);
 
+        // Separate visual pivot lets held and floor presentation use different scale/offset.
+        GameObject visualRoot = new("MushroomVisualRoot");
+        visualRoot.transform.SetParent(root.transform, false);
+        visualRoot.layer = root.layer;
+
         // Origin sits around the grip point so the hand wraps around the stem.
-        GameObject stem = CreateMeshPart("MushroomStem", root.transform,
+        GameObject stem = CreateMeshPart("MushroomStem", visualRoot.transform,
             LowPolyMeshes.CreateTaperedCylinder(8, 0.085f, 0.13f, 0.40f),
             stemMaterial, new Vector3(0f, -0.16f, 0f), root.layer);
-        GameObject cap = CreateMeshPart("MushroomCap", root.transform,
+        GameObject cap = CreateMeshPart("MushroomCap", visualRoot.transform,
             LowPolyMeshes.CreateCap(12, 3, 0.27f, 0.15f),
             capMaterial, new Vector3(0f, 0.23f, 0f), root.layer);
 
@@ -194,7 +201,7 @@ internal static class MushroomFactory
         {
             GameObject spot = GameObject.CreatePrimitive(PrimitiveType.Sphere);
             spot.name = "MushroomGlowSpot";
-            spot.transform.SetParent(root.transform, false);
+            spot.transform.SetParent(visualRoot.transform, false);
             spot.transform.localPosition = position;
             spot.transform.localScale = new Vector3(0.055f, 0.025f, 0.055f);
             spot.layer = root.layer;
@@ -204,8 +211,16 @@ internal static class MushroomFactory
             Object.Destroy(spot.GetComponent<Collider>());
         }
 
+        ScanNodeProperties scanNode = root.GetComponentInChildren<ScanNodeProperties>(true);
+        if (scanNode != null)
+        {
+            scanNode.headerText = "Mushroom";
+            scanNode.subText = "Food";
+            scanNode.scrapValue = 0;
+        }
+
         MushroomVisualController visualController = root.AddComponent<MushroomVisualController>();
-        visualController.Initialize(grabbable, mushroomRenderers.ToArray(), originalRenderers);
+        visualController.Initialize(grabbable, visualRoot.transform, mushroomRenderers.ToArray(), originalRenderers);
 
         // A valid NetworkObject is essential: inventory drop and switch RPCs pass its reference.
         if (!networkObject.IsSpawned)
@@ -239,20 +254,54 @@ internal static class MushroomFactory
     }
 }
 
+internal static class MushroomIcon
+{
+    private static Sprite? _sprite;
+
+    internal static Sprite Load()
+    {
+        if (_sprite != null)
+            return _sprite;
+
+        using System.IO.Stream? stream = typeof(MushroomIcon).Assembly
+            .GetManifestResourceStream("HungerBar.Resources.lethal_mushroom.png");
+        if (stream == null)
+            throw new System.IO.FileNotFoundException("Embedded mushroom icon was not found");
+
+        byte[] bytes = new byte[stream.Length];
+        stream.Read(bytes, 0, bytes.Length);
+        Texture2D texture = new(2, 2, TextureFormat.RGBA32, false)
+        {
+            name = "MushroomIconTexture",
+            filterMode = FilterMode.Bilinear
+        };
+        if (!texture.LoadImage(bytes, false))
+            throw new System.InvalidOperationException("Mushroom icon PNG could not be decoded");
+
+        _sprite = Sprite.Create(texture, new Rect(0f, 0f, texture.width, texture.height),
+            new Vector2(0.5f, 0.5f), 100f);
+        _sprite.name = "MushroomIcon";
+        return _sprite;
+    }
+}
+
 [DefaultExecutionOrder(32000)]
 internal sealed class MushroomVisualController : MonoBehaviour
 {
     private GrabbableObject? _item;
+    private Transform? _visualRoot;
     private Renderer[] _renderers = System.Array.Empty<Renderer>();
     private Renderer[] _originalRenderers = System.Array.Empty<Renderer>();
     private bool _lastVisible = true;
+    private bool _lastHeld;
 
-    internal void Initialize(GrabbableObject item, Renderer[] renderers, Renderer[] originalRenderers)
+    internal void Initialize(GrabbableObject item, Transform visualRoot, Renderer[] renderers, Renderer[] originalRenderers)
     {
         _item = item;
+        _visualRoot = visualRoot;
         _renderers = renderers;
         _originalRenderers = originalRenderers;
-        SetVisible(true);
+        UpdatePresentation(true);
     }
 
     private void LateUpdate()
@@ -267,8 +316,21 @@ internal sealed class MushroomVisualController : MonoBehaviour
                 original.enabled = false;
 
         bool visible = !_item.isPocketed;
-        if (visible != _lastVisible)
-            SetVisible(visible);
+        if (visible != _lastVisible || _item.isHeld != _lastHeld)
+            UpdatePresentation(visible);
+    }
+
+    private void UpdatePresentation(bool visible)
+    {
+        _lastHeld = _item != null && _item.isHeld;
+        if (_visualRoot != null)
+        {
+            // Normal size in hand; 30% larger and upright when lying in the world.
+            _visualRoot.localScale = _lastHeld ? Vector3.one : Vector3.one * 1.3f;
+            _visualRoot.localPosition = _lastHeld ? new Vector3(0f, -0.04f, 0f) : Vector3.zero;
+            _visualRoot.localRotation = Quaternion.identity;
+        }
+        SetVisible(visible);
     }
 
     private void SetVisible(bool visible)
