@@ -93,6 +93,11 @@ internal static class MushroomFactory
         root.transform.position = player.transform.position;
         root.layer = 6;
 
+        Rigidbody body = root.AddComponent<Rigidbody>();
+        body.mass = 1f;
+        body.interpolation = RigidbodyInterpolation.Interpolate;
+        body.collisionDetectionMode = CollisionDetectionMode.Continuous;
+
         GrabbableObject grabbable = root.AddComponent<TestMushroomGrabbable>();
         Item properties = ScriptableObject.CreateInstance<Item>();
         properties.itemName = "Test mushroom";
@@ -112,7 +117,7 @@ internal static class MushroomFactory
         CreateMeshPart("Stem", root.transform,
             LowPolyMeshes.CreateTaperedCylinder(8, 0.13f, 0.19f, 0.52f),
             stemMaterial, new Vector3(0f, 0.25f, 0f));
-        CreateMeshPart("Cap", root.transform,
+        GameObject cap = CreateMeshPart("Cap", root.transform,
             LowPolyMeshes.CreateCap(10, 3, 0.38f, 0.20f),
             capMaterial, new Vector3(0f, 0.56f, 0f));
 
@@ -137,19 +142,26 @@ internal static class MushroomFactory
         collider.height = 0.75f;
         collider.radius = 0.28f;
 
+        // GrabbableObject.EnablePhysics expects these references to be populated by a prefab.
+        // This item is generated at runtime, so wire them explicitly.
+        grabbable.propBody = body;
+        grabbable.propColliders = new Collider[] { collider };
+        grabbable.mainObjectRenderer = cap.GetComponent<MeshRenderer>();
+
         grabbable.fallTime = 1f;
         grabbable.hasHitGround = true;
         grabbable.EnablePhysics(false);
         return grabbable;
     }
 
-    private static void CreateMeshPart(string name, Transform parent, Mesh mesh, Material material, Vector3 position)
+    private static GameObject CreateMeshPart(string name, Transform parent, Mesh mesh, Material material, Vector3 position)
     {
         GameObject part = new(name, typeof(MeshFilter), typeof(MeshRenderer));
         part.transform.SetParent(parent, false);
         part.transform.localPosition = position;
         part.GetComponent<MeshFilter>().sharedMesh = mesh;
         part.GetComponent<MeshRenderer>().sharedMaterial = material;
+        return part;
     }
 
     private static Material MakeMaterial(Color color, float metallic)
