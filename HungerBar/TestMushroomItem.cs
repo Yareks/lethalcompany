@@ -164,7 +164,7 @@ internal static class MushroomFactory
         properties.rotationOffset = Vector3.zero;
         properties.restingRotation = Vector3.zero; // Y-up model stands on its stem.
         properties.verticalOffset = 0.26f;
-        properties.floorYOffset = 0.26f;
+        properties.floorYOffset = 0;
         properties.toolTips = new[] { "Eat : [LMB]" };
         properties.itemIcon = MushroomIcon.Load();
         grabbable.itemProperties = properties;
