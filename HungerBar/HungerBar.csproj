@@ -5,7 +5,7 @@
     <Nullable>enable</Nullable>
     <AssemblyName>HungerBar</AssemblyName>
     <RootNamespace>HungerBar</RootNamespace>
-    <Version>1.2.2</Version>
+    <Version>1.3.0</Version>
     <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
   </PropertyGroup>

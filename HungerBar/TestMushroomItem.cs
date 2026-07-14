@@ -1,6 +1,7 @@
 using System.Collections;
 using HarmonyLib;
 using GameNetcodeStuff;
+using Unity.Netcode;
 using UnityEngine;
 
 namespace HungerBar;
@@ -55,19 +56,18 @@ internal static class GiveMushroomOnJoinPatch
         try
         {
             GrabbableObject mushroom = MushroomFactory.Create(player);
-            player.ItemSlots[slot] = mushroom;
+            NetworkObject networkObject = mushroom.GetComponent<NetworkObject>();
 
-            // This game build keeps SwitchToItemSlot non-public, so invoke the game's
-            // own inventory routine through Harmony reflection.
-            System.Reflection.MethodInfo? switchMethod = AccessTools.Method(
-                typeof(PlayerControllerB), "SwitchToItemSlot",
-                new[] { typeof(int), typeof(GrabbableObject) });
-            if (switchMethod != null)
-                switchMethod.Invoke(player, new object[] { slot, mushroom });
-            else
-                Plugin.Log.LogWarning("SwitchToItemSlot was not found; mushroom was added but not selected");
+            // Use the game's complete pickup RPC instead of writing ItemSlots manually.
+            // It initializes playerHeldBy, parentObject, held flags and animation state.
+            System.Reflection.MethodInfo? grabMethod = AccessTools.Method(
+                typeof(PlayerControllerB), "GrabObjectServerRpc",
+                new[] { typeof(NetworkObjectReference) });
+            if (grabMethod == null)
+                throw new System.MissingMethodException("PlayerControllerB.GrabObjectServerRpc");
 
-            Plugin.Log.LogInfo($"Test low-poly mushroom placed into inventory slot {slot}");
+            grabMethod.Invoke(player, new object[] { new NetworkObjectReference(networkObject) });
+            Plugin.Log.LogInfo($"Test low-poly mushroom pickup requested for inventory slot {slot}");
         }
         catch (System.Exception exception)
         {
@@ -76,30 +76,32 @@ internal static class GiveMushroomOnJoinPatch
     }
 }
 
-/// <summary>
-/// Concrete implementation required because the game's GrabbableObject base class is abstract.
-/// Its default virtual behaviour already provides normal pickup, holding and dropping logic.
-/// </summary>
-internal sealed class TestMushroomGrabbable : GrabbableObject
-{
-}
-
 internal static class MushroomFactory
 {
     internal static GrabbableObject Create(PlayerControllerB player)
     {
-        GameObject root = new("TestLowPolyMushroom");
-        root.SetActive(false); // Configure Item before GrabbableObject receives Unity callbacks.
-        root.transform.position = player.transform.position;
-        root.layer = 6;
+        Item? template = null;
+        foreach (Item item in StartOfRound.Instance.allItemsList.itemsList)
+        {
+            if (item != null && item.spawnPrefab != null &&
+                item.spawnPrefab.GetComponent<GrabbableObject>() != null &&
+                item.spawnPrefab.GetComponent<Unity.Netcode.NetworkObject>() != null)
+            {
+                template = item;
+                break;
+            }
+        }
 
-        Rigidbody body = root.AddComponent<Rigidbody>();
-        body.mass = 1f;
-        body.interpolation = RigidbodyInterpolation.Interpolate;
-        body.collisionDetectionMode = CollisionDetectionMode.Continuous;
+        if (template == null)
+            throw new System.InvalidOperationException("No networked grabbable item prefab was found");
 
-        GrabbableObject grabbable = root.AddComponent<TestMushroomGrabbable>();
-        Item properties = ScriptableObject.CreateInstance<Item>();
+        GameObject root = Object.Instantiate(template.spawnPrefab, player.transform.position, Quaternion.identity);
+        root.name = "TestLowPolyMushroom";
+        GrabbableObject grabbable = root.GetComponent<GrabbableObject>();
+        Unity.Netcode.NetworkObject networkObject = root.GetComponent<Unity.Netcode.NetworkObject>();
+
+        // Keep all mandatory prefab references and animation data, changing only identity and visuals.
+        Item properties = Object.Instantiate(template);
         properties.itemName = "Test mushroom";
         properties.canBeGrabbedBeforeGameStart = true;
         properties.twoHanded = false;
@@ -110,14 +112,17 @@ internal static class MushroomFactory
         properties.verticalOffset = 0.08f;
         grabbable.itemProperties = properties;
 
+        foreach (Renderer renderer in root.GetComponentsInChildren<Renderer>(true))
+            renderer.enabled = false;
+
         Material stemMaterial = MakeMaterial(new Color(0.55f, 0.48f, 0.34f, 1f), 0.15f);
         Material capMaterial = MakeMaterial(new Color(0.67f, 0.16f, 0.06f, 1f), 0.1f);
         Material glowMaterial = MakeMaterial(new Color(0.36f, 0.85f, 0.18f, 1f), 0.3f);
 
-        CreateMeshPart("Stem", root.transform,
+        CreateMeshPart("MushroomStem", root.transform,
             LowPolyMeshes.CreateTaperedCylinder(8, 0.13f, 0.19f, 0.52f),
             stemMaterial, new Vector3(0f, 0.25f, 0f));
-        GameObject cap = CreateMeshPart("Cap", root.transform,
+        CreateMeshPart("MushroomCap", root.transform,
             LowPolyMeshes.CreateCap(10, 3, 0.38f, 0.20f),
             capMaterial, new Vector3(0f, 0.56f, 0f));
 
@@ -129,7 +134,7 @@ internal static class MushroomFactory
         foreach (Vector3 position in spots)
         {
             GameObject spot = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-            spot.name = "BioluminescentSpot";
+            spot.name = "MushroomGlowSpot";
             spot.transform.SetParent(root.transform, false);
             spot.transform.localPosition = position;
             spot.transform.localScale = new Vector3(0.055f, 0.025f, 0.055f);
@@ -137,20 +142,11 @@ internal static class MushroomFactory
             Object.Destroy(spot.GetComponent<Collider>());
         }
 
-        CapsuleCollider collider = root.AddComponent<CapsuleCollider>();
-        collider.center = new Vector3(0f, 0.34f, 0f);
-        collider.height = 0.75f;
-        collider.radius = 0.28f;
+        // A valid NetworkObject is essential: inventory drop and switch RPCs pass its reference.
+        if (!networkObject.IsSpawned)
+            networkObject.Spawn(false);
 
-        // GrabbableObject.EnablePhysics expects these references to be populated by a prefab.
-        // This item is generated at runtime, so wire them explicitly.
-        grabbable.propBody = body;
-        grabbable.propColliders = new Collider[] { collider };
-        grabbable.mainObjectRenderer = cap.GetComponent<MeshRenderer>();
-
-        grabbable.fallTime = 1f;
-        grabbable.hasHitGround = true;
-        grabbable.EnablePhysics(false);
+        Plugin.Log.LogInfo($"Mushroom cloned from network prefab '{template.itemName}', networkId={networkObject.NetworkObjectId}");
         return grabbable;
     }
 
