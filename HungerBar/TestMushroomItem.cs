@@ -76,6 +76,14 @@ internal static class GiveMushroomOnJoinPatch
     }
 }
 
+/// <summary>
+/// Concrete implementation required because the game's GrabbableObject base class is abstract.
+/// Its default virtual behaviour already provides normal pickup, holding and dropping logic.
+/// </summary>
+internal sealed class TestMushroomGrabbable : GrabbableObject
+{
+}
+
 internal static class MushroomFactory
 {
     internal static GrabbableObject Create(PlayerControllerB player)
@@ -85,7 +93,7 @@ internal static class MushroomFactory
         root.transform.position = player.transform.position;
         root.layer = 6;
 
-        GrabbableObject grabbable = root.AddComponent<GrabbableObject>();
+        GrabbableObject grabbable = root.AddComponent<TestMushroomGrabbable>();
         Item properties = ScriptableObject.CreateInstance<Item>();
         properties.itemName = "Test mushroom";
         properties.canBeGrabbedBeforeGameStart = true;
