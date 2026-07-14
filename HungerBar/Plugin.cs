@@ -1,6 +1,9 @@
 using BepInEx;
 using BepInEx.Configuration;
+using BepInEx.Logging;
+using HarmonyLib;
 using UnityEngine;
+using UnityEngine.UI;
 
 namespace HungerBar;
 
@@ -9,120 +12,153 @@ public sealed class Plugin : BaseUnityPlugin
 {
     public const string PluginGuid = "ru.yareks.lethalcompany.hungerbar";
     public const string PluginName = "Hunger Bar";
-    public const string PluginVersion = "1.0.1";
+    public const string PluginVersion = "1.1.0";
 
-    private ConfigEntry<float> _fullDurationMinutes = null!;
-    private ConfigEntry<float> _rightOffset = null!;
-    private ConfigEntry<float> _barHeight = null!;
-    private ConfigEntry<bool> _showPercentage = null!;
-    private float _hunger = 1f;
-    private GUIStyle? _labelStyle;
-    private float _nextStatusLogTime;
-    private bool _updateLogged;
-    private bool _guiLogged;
+    internal static ManualLogSource Log = null!;
+    internal static float DurationSeconds { get; private set; } = 1200f;
+    internal static float RightOffset { get; private set; } = 24f;
+    internal static float BarHeight { get; private set; } = 260f;
 
-    /// <summary>Current hunger from 0 (empty) to 1 (full).</summary>
     public static float Current { get; private set; } = 1f;
 
     private void Awake()
     {
-        _fullDurationMinutes = Config.Bind(
-            "Hunger", "FullDurationMinutes", 20f,
-            "How many real-time minutes it takes for a full hunger bar to become empty.");
-        _rightOffset = Config.Bind(
-            "Interface", "RightOffset", 24f,
-            "Distance in pixels between the bar and the right edge of the screen.");
-        _barHeight = Config.Bind(
-            "Interface", "BarHeight", 260f,
-            "Maximum bar height in pixels.");
-        _showPercentage = Config.Bind(
-            "Interface", "ShowPercentage", true,
-            "Show the hunger percentage next to the bar.");
+        Log = Logger;
+        ConfigEntry<float> duration = Config.Bind("Hunger", "FullDurationMinutes", 20f,
+            "How many real-time minutes it takes for a full bar to become empty.");
+        ConfigEntry<float> rightOffset = Config.Bind("Interface", "RightOffset", 24f,
+            "Distance in pixels from the right edge.");
+        ConfigEntry<float> barHeight = Config.Bind("Interface", "BarHeight", 260f,
+            "Bar height in pixels.");
 
-        Current = _hunger;
+        DurationSeconds = Mathf.Max(1f, duration.Value * 60f);
+        RightOffset = Mathf.Max(0f, rightOffset.Value);
+        BarHeight = Mathf.Max(100f, barHeight.Value);
+
         Logger.LogInfo($"{PluginName} {PluginVersion} loaded successfully");
-        Logger.LogInfo($"Settings: duration={_fullDurationMinutes.Value:F1} min, rightOffset={_rightOffset.Value:F0}px, barHeight={_barHeight.Value:F0}px, percentage={_showPercentage.Value}");
-        Logger.LogInfo("The hunger bar should appear at the right side of the screen. Diagnostics will be written every 10 seconds.");
+        Logger.LogInfo($"Settings: duration={duration.Value:F1} min, rightOffset={RightOffset:F0}px, barHeight={BarHeight:F0}px");
+
+        Harmony harmony = new(PluginGuid);
+        harmony.PatchAll();
+        Logger.LogInfo("Harmony patches installed. Waiting for HUDManager.Update.");
     }
 
-    private void Update()
-    {
-        if (!_updateLogged)
-        {
-            _updateLogged = true;
-            Logger.LogInfo("Update is running");
-        }
-
-        if (Time.timeScale > 0f && _hunger > 0f)
-        {
-            float seconds = Mathf.Max(1f, _fullDurationMinutes.Value * 60f);
-            _hunger = Mathf.Clamp01(_hunger - Time.unscaledDeltaTime / seconds);
-            Current = _hunger;
-        }
-
-        if (Time.unscaledTime >= _nextStatusLogTime)
-        {
-            _nextStatusLogTime = Time.unscaledTime + 10f;
-            Logger.LogInfo($"Status: hunger={_hunger * 100f:F1}%, screen={Screen.width}x{Screen.height}, timeScale={Time.timeScale:F2}, OnGUI={_guiLogged}");
-        }
-    }
-
-    /// <summary>Adds hunger. Useful for food-item mods.</summary>
     public static void Refill(float normalizedAmount)
     {
-        Plugin? instance = FindObjectOfType<Plugin>();
-        if (instance == null)
-            return;
-
-        instance._hunger = Mathf.Clamp01(instance._hunger + normalizedAmount);
-        Current = instance._hunger;
+        Current = Mathf.Clamp01(Current + normalizedAmount);
+        HungerHud.SetValue(Current);
+        Log?.LogInfo($"Hunger refilled; current value is {Current * 100f:F1}%");
     }
 
-    private void OnGUI()
+    internal static void Tick(float deltaTime)
     {
-        // Draw after the game's IMGUI so the bar cannot be hidden behind another overlay.
-        GUI.depth = -1000;
+        if (Time.timeScale > 0f && Current > 0f)
+            Current = Mathf.Clamp01(Current - deltaTime / DurationSeconds);
 
-        if (!_guiLogged)
+        HungerHud.SetValue(Current);
+    }
+}
+
+[HarmonyPatch(typeof(HUDManager), "Update")]
+internal static class HudManagerUpdatePatch
+{
+    private static float _nextLogTime;
+    private static bool _firstUpdate = true;
+
+    [HarmonyPostfix]
+    private static void Postfix()
+    {
+        if (_firstUpdate)
         {
-            _guiLogged = true;
-            Logger.LogInfo($"OnGUI is running; first draw at resolution {Screen.width}x{Screen.height}");
+            _firstUpdate = false;
+            Plugin.Log.LogInfo("HUDManager.Update patch is running");
         }
 
-        const float width = 24f;
-        float height = Mathf.Clamp(_barHeight.Value, 100f, Screen.height - 80f);
-        float x = Screen.width - Mathf.Max(0f, _rightOffset.Value) - width;
-        float y = (Screen.height - height) * 0.5f;
+        HungerHud.EnsureCreated();
+        Plugin.Tick(Time.unscaledDeltaTime);
 
-        DrawRect(new Rect(x - 3f, y - 3f, width + 6f, height + 6f), new Color(0f, 0f, 0f, 0.78f));
-        DrawRect(new Rect(x, y, width, height), new Color(0.10f, 0.10f, 0.10f, 0.88f));
+        if (Time.unscaledTime >= _nextLogTime)
+        {
+            _nextLogTime = Time.unscaledTime + 10f;
+            Plugin.Log.LogInfo($"HUD status: created={HungerHud.IsCreated}, active={HungerHud.IsActive}, hunger={Plugin.Current * 100f:F1}%, screen={Screen.width}x{Screen.height}");
+        }
+    }
+}
 
-        float filledHeight = height * _hunger;
-        Color hungerColor = Color.Lerp(new Color(0.9f, 0.12f, 0.05f), new Color(0.18f, 0.85f, 0.16f), _hunger);
-        DrawRect(new Rect(x, y + height - filledHeight, width, filledHeight), hungerColor);
+internal static class HungerHud
+{
+    private static GameObject? _root;
+    private static RectTransform? _fill;
+    private static Image? _fillImage;
 
-        // Small divisions make the indicator readable over bright game scenes.
-        for (int i = 1; i < 4; i++)
-            DrawRect(new Rect(x, y + height * i / 4f, width, 1f), new Color(0f, 0f, 0f, 0.45f));
+    internal static bool IsCreated => _root != null;
+    internal static bool IsActive => _root != null && _root.activeInHierarchy;
 
-        if (!_showPercentage.Value)
+    internal static void EnsureCreated()
+    {
+        if (_root != null)
             return;
 
-        _labelStyle ??= new GUIStyle(GUI.skin.label)
+        try
         {
-            alignment = TextAnchor.MiddleRight,
-            fontSize = 13,
-            fontStyle = FontStyle.Bold,
-            normal = { textColor = Color.white }
-        };
-        GUI.Label(new Rect(x - 67f, y + height * 0.5f - 12f, 60f, 24f), $"{Mathf.RoundToInt(_hunger * 100f)}%", _labelStyle);
+            _root = new GameObject("HungerBarCanvas", typeof(Canvas), typeof(CanvasScaler), typeof(GraphicRaycaster));
+            Object.DontDestroyOnLoad(_root);
+
+            Canvas canvas = _root.GetComponent<Canvas>();
+            canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+            canvas.sortingOrder = short.MaxValue;
+
+            CanvasScaler scaler = _root.GetComponent<CanvasScaler>();
+            scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+            scaler.referenceResolution = new Vector2(1920f, 1080f);
+            scaler.matchWidthOrHeight = 1f;
+
+            GameObject background = CreateImage("Background", _root.transform, new Color(0.01f, 0.01f, 0.01f, 0.9f));
+            RectTransform backgroundRect = background.GetComponent<RectTransform>();
+            backgroundRect.anchorMin = new Vector2(1f, 0.5f);
+            backgroundRect.anchorMax = new Vector2(1f, 0.5f);
+            backgroundRect.pivot = new Vector2(1f, 0.5f);
+            backgroundRect.anchoredPosition = new Vector2(-Plugin.RightOffset, 0f);
+            backgroundRect.sizeDelta = new Vector2(30f, Plugin.BarHeight + 6f);
+
+            GameObject fill = CreateImage("Fill", background.transform, Color.green);
+            _fill = fill.GetComponent<RectTransform>();
+            _fill.anchorMin = Vector2.zero;
+            _fill.anchorMax = Vector2.one;
+            _fill.pivot = new Vector2(0.5f, 0f);
+            _fill.offsetMin = new Vector2(3f, 3f);
+            _fill.offsetMax = new Vector2(-3f, -3f);
+            _fillImage = fill.GetComponent<Image>();
+
+            SetValue(Plugin.Current);
+            Plugin.Log.LogInfo($"Hunger UI Canvas created: sortingOrder={canvas.sortingOrder}, resolution={Screen.width}x{Screen.height}");
+        }
+        catch (System.Exception exception)
+        {
+            Plugin.Log.LogError($"Failed to create hunger UI: {exception}");
+            if (_root != null)
+                Object.Destroy(_root);
+            _root = null;
+        }
     }
 
-    private static void DrawRect(Rect rect, Color color)
+    internal static void SetValue(float value)
     {
-        Color previous = GUI.color;
-        GUI.color = color;
-        GUI.DrawTexture(rect, Texture2D.whiteTexture);
-        GUI.color = previous;
+        if (_fill == null || _fillImage == null)
+            return;
+
+        float normalized = Mathf.Clamp01(value);
+        _fill.anchorMax = new Vector2(1f, normalized);
+        _fillImage.color = Color.Lerp(new Color(0.9f, 0.08f, 0.03f, 1f), new Color(0.1f, 0.9f, 0.12f, 1f), normalized);
+    }
+
+    private static GameObject CreateImage(string name, Transform parent, Color color)
+    {
+        GameObject gameObject = new(name, typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
+        gameObject.transform.SetParent(parent, false);
+        Image image = gameObject.GetComponent<Image>();
+        image.color = color;
+        image.raycastTarget = false;
+        return gameObject;
     }
 }

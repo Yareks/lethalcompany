@@ -5,7 +5,7 @@
     <Nullable>enable</Nullable>
     <AssemblyName>HungerBar</AssemblyName>
     <RootNamespace>HungerBar</RootNamespace>
-    <Version>1.0.1</Version>
+    <Version>1.1.0</Version>
     <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
   </PropertyGroup>
@@ -29,6 +29,18 @@
     </Reference>
     <Reference Include="UnityEngine.TextRenderingModule">
       <HintPath>../UnityEngine.TextRenderingModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.UIModule">
+      <HintPath>../UnityEngine.UIModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.UI">
+      <HintPath>../UnityEngine.UI.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Assembly-CSharp">
+      <HintPath>../Assembly-CSharp.dll</HintPath>
       <Private>false</Private>
     </Reference>
   </ItemGroup>
