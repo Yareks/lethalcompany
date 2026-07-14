@@ -55,7 +55,18 @@ internal static class GiveMushroomOnJoinPatch
         try
         {
             GrabbableObject mushroom = MushroomFactory.Create(player);
-            player.SwitchToItemSlot(slot, mushroom);
+            player.ItemSlots[slot] = mushroom;
+
+            // This game build keeps SwitchToItemSlot non-public, so invoke the game's
+            // own inventory routine through Harmony reflection.
+            System.Reflection.MethodInfo? switchMethod = AccessTools.Method(
+                typeof(PlayerControllerB), "SwitchToItemSlot",
+                new[] { typeof(int), typeof(GrabbableObject) });
+            if (switchMethod != null)
+                switchMethod.Invoke(player, new object[] { slot, mushroom });
+            else
+                Plugin.Log.LogWarning("SwitchToItemSlot was not found; mushroom was added but not selected");
+
             Plugin.Log.LogInfo($"Test low-poly mushroom placed into inventory slot {slot}");
         }
         catch (System.Exception exception)
