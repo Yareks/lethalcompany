@@ -53,9 +53,11 @@ internal static class GiveMushroomOnJoinPatch
             yield break;
         }
 
+        GrabbableObject? mushroom = null;
+        bool creationFailed = false;
         try
         {
-            GrabbableObject mushroom = MushroomFactory.Create(player);
+            mushroom = MushroomFactory.Create(player);
             NetworkObject networkObject = mushroom.GetComponent<NetworkObject>();
 
             // Use the game's complete pickup RPC instead of writing ItemSlots manually.
@@ -71,7 +73,38 @@ internal static class GiveMushroomOnJoinPatch
         }
         catch (System.Exception exception)
         {
+            creationFailed = true;
             Plugin.Log.LogError($"Failed to create test mushroom: {exception}");
+        }
+
+        if (creationFailed || mushroom == null)
+            yield break;
+
+        // The pickup RPC fills the inventory correctly but does not always select the
+        // newly occupied slot. Wait for its ClientRpc, then equip it explicitly.
+        yield return new WaitForSeconds(0.75f);
+        try
+        {
+            int actualSlot = System.Array.IndexOf(player.ItemSlots, mushroom);
+            if (actualSlot < 0)
+            {
+                Plugin.Log.LogWarning("Pickup RPC completed, but mushroom was not found in ItemSlots");
+            }
+            else
+            {
+                System.Reflection.MethodInfo? switchMethod = AccessTools.Method(
+                    typeof(PlayerControllerB), "SwitchToItemSlot",
+                    new[] { typeof(int), typeof(GrabbableObject) });
+                if (switchMethod == null)
+                    throw new System.MissingMethodException("PlayerControllerB.SwitchToItemSlot");
+
+                switchMethod.Invoke(player, new object[] { actualSlot, mushroom! });
+                Plugin.Log.LogInfo($"Mushroom equipped: slot={actualSlot}, held={mushroom!.isHeld}, pocketed={mushroom.isPocketed}, parent={(mushroom.parentObject == null ? "null" : mushroom.parentObject.name)}");
+            }
+        }
+        catch (System.Exception exception)
+        {
+            Plugin.Log.LogError($"Failed to equip test mushroom: {exception}");
         }
     }
 }
