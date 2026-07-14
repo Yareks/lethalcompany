@@ -156,13 +156,16 @@ internal static class MushroomFactory
         properties.itemName = "Mushroom";
         properties.canBeGrabbedBeforeGameStart = true;
         properties.twoHanded = false;
+        properties.disallowUtilitySlot = true; // Force ordinary numbered inventory, never TAB/belt.
         properties.isScrap = false; // Food, not sellable scrap.
+        properties.holdButtonUse = true;
         properties.weight = 1.05f;
         properties.positionOffset = new Vector3(0f, -0.08f, 0.02f);
         properties.rotationOffset = Vector3.zero;
         properties.restingRotation = Vector3.zero; // Y-up model stands on its stem.
-        properties.verticalOffset = 0.22f;
-        properties.toolTips = System.Array.Empty<string>();
+        properties.verticalOffset = 0.26f;
+        properties.floorYOffset = 0.26f;
+        properties.toolTips = new[] { "Eat : [LMB]" };
         properties.itemIcon = MushroomIcon.Load();
         grabbable.itemProperties = properties;
 
@@ -221,6 +224,7 @@ internal static class MushroomFactory
 
         MushroomVisualController visualController = root.AddComponent<MushroomVisualController>();
         visualController.Initialize(grabbable, visualRoot.transform, mushroomRenderers.ToArray(), originalRenderers);
+        root.AddComponent<MushroomFoodController>().Initialize(grabbable);
 
         // A valid NetworkObject is essential: inventory drop and switch RPCs pass its reference.
         if (!networkObject.IsSpawned)
@@ -326,8 +330,8 @@ internal sealed class MushroomVisualController : MonoBehaviour
         if (_visualRoot != null)
         {
             // Normal size in hand; 30% larger and upright when lying in the world.
-            _visualRoot.localScale = _lastHeld ? Vector3.one : Vector3.one * 1.3f;
-            _visualRoot.localPosition = _lastHeld ? new Vector3(0f, -0.04f, 0f) : Vector3.zero;
+            _visualRoot.localScale = _lastHeld ? Vector3.one : Vector3.one * 1.6f;
+            _visualRoot.localPosition = _lastHeld ? new Vector3(0f, 0.12f, 0f) : Vector3.zero;
             _visualRoot.localRotation = Quaternion.identity;
         }
         SetVisible(visible);
@@ -344,6 +348,55 @@ internal sealed class MushroomVisualController : MonoBehaviour
                 renderer.enabled = visible;
             }
         }
+    }
+}
+
+internal sealed class MushroomFoodController : MonoBehaviour
+{
+    private const float EatDuration = 1.5f;
+    private GrabbableObject? _item;
+    private float _heldTime;
+    private bool _started;
+
+    internal void Initialize(GrabbableObject item) => _item = item;
+
+    private void Update()
+    {
+        if (_item == null || !_item.isHeld || _item.playerHeldBy == null ||
+            GameNetworkManager.Instance == null ||
+            _item.playerHeldBy != GameNetworkManager.Instance.localPlayerController)
+        {
+            ResetEating();
+            return;
+        }
+
+        if (!Input.GetMouseButton(0))
+        {
+            ResetEating();
+            return;
+        }
+
+        if (!_started)
+        {
+            _started = true;
+            Plugin.Log.LogInfo("Eating mushroom started; hold LMB for 1.5 seconds");
+        }
+
+        _heldTime += Time.unscaledDeltaTime;
+        if (_heldTime < EatDuration)
+            return;
+
+        PlayerControllerB player = _item.playerHeldBy;
+        Plugin.Refill(0.25f);
+        Plugin.Log.LogInfo("Mushroom eaten: hunger restored by 25 points");
+        _item.DestroyObjectInHand(player);
+        enabled = false;
+    }
+
+    private void ResetEating()
+    {
+        _heldTime = 0f;
+        _started = false;
     }
 }
 

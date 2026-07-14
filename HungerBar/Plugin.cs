@@ -12,10 +12,10 @@ public sealed class Plugin : BaseUnityPlugin
 {
     public const string PluginGuid = "ru.yareks.lethalcompany.hungerbar";
     public const string PluginName = "Hunger Bar";
-    public const string PluginVersion = "1.5.0";
+    public const string PluginVersion = "1.6.0";
 
     internal static ManualLogSource Log = null!;
-    internal static float DurationSeconds { get; private set; } = 1200f;
+    internal static float DrainPerSecond { get; private set; } = 0.25f;
     internal static float RightOffset { get; private set; } = 24f;
     internal static float BarHeight { get; private set; } = 260f;
 
@@ -24,19 +24,19 @@ public sealed class Plugin : BaseUnityPlugin
     private void Awake()
     {
         Log = Logger;
-        ConfigEntry<float> duration = Config.Bind("Hunger", "FullDurationMinutes", 20f,
-            "How many real-time minutes it takes for a full bar to become empty.");
+        ConfigEntry<float> drain = Config.Bind("Hunger", "DrainPerSecond", 0.25f,
+            "Hunger points lost per second (the full bar contains 100 points).");
         ConfigEntry<float> rightOffset = Config.Bind("Interface", "RightOffset", 24f,
             "Distance in pixels from the right edge.");
         ConfigEntry<float> barHeight = Config.Bind("Interface", "BarHeight", 260f,
             "Bar height in pixels.");
 
-        DurationSeconds = Mathf.Max(1f, duration.Value * 60f);
+        DrainPerSecond = Mathf.Max(0f, drain.Value);
         RightOffset = Mathf.Max(0f, rightOffset.Value);
         BarHeight = Mathf.Max(100f, barHeight.Value);
 
         Logger.LogInfo($"{PluginName} {PluginVersion} loaded successfully");
-        Logger.LogInfo($"Settings: duration={duration.Value:F1} min, rightOffset={RightOffset:F0}px, barHeight={BarHeight:F0}px");
+        Logger.LogInfo($"Settings: hunger=100 points, drain={DrainPerSecond:F2}/sec, rightOffset={RightOffset:F0}px, barHeight={BarHeight:F0}px");
 
         Harmony harmony = new(PluginGuid);
         harmony.PatchAll();
@@ -53,7 +53,7 @@ public sealed class Plugin : BaseUnityPlugin
     internal static void Tick(float deltaTime)
     {
         if (Time.timeScale > 0f && Current > 0f)
-            Current = Mathf.Clamp01(Current - deltaTime / DurationSeconds);
+            Current = Mathf.Clamp01(Current - deltaTime * DrainPerSecond / 100f);
 
         HungerHud.SetValue(Current);
     }
