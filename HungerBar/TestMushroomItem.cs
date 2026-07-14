@@ -1,5 +1,6 @@
 using System.Collections;
 using HarmonyLib;
+using GameNetcodeStuff;
 using UnityEngine;
 
 namespace HungerBar;
