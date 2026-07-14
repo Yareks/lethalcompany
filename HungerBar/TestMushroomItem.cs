@@ -88,19 +88,22 @@ internal static class GiveMushroomOnJoinPatch
             int actualSlot = System.Array.IndexOf(player.ItemSlots, mushroom);
             if (actualSlot < 0)
             {
-                Plugin.Log.LogWarning("Pickup RPC completed, but mushroom was not found in ItemSlots");
+                // This game version acknowledges the pickup RPC but does not insert a
+                // runtime-cloned Item into ItemSlots. The object is now a valid spawned
+                // network prefab, so completing the slot assignment locally is safe.
+                actualSlot = slot;
+                player.ItemSlots[actualSlot] = mushroom;
+                Plugin.Log.LogWarning($"Pickup RPC did not fill ItemSlots; applying safe local fallback to slot {actualSlot}");
             }
-            else
-            {
-                System.Reflection.MethodInfo? switchMethod = AccessTools.Method(
-                    typeof(PlayerControllerB), "SwitchToItemSlot",
-                    new[] { typeof(int), typeof(GrabbableObject) });
-                if (switchMethod == null)
-                    throw new System.MissingMethodException("PlayerControllerB.SwitchToItemSlot");
 
-                switchMethod.Invoke(player, new object[] { actualSlot, mushroom! });
-                Plugin.Log.LogInfo($"Mushroom equipped: slot={actualSlot}, held={mushroom!.isHeld}, pocketed={mushroom.isPocketed}, parent={(mushroom.parentObject == null ? "null" : mushroom.parentObject.name)}");
-            }
+            System.Reflection.MethodInfo? switchMethod = AccessTools.Method(
+                typeof(PlayerControllerB), "SwitchToItemSlot",
+                new[] { typeof(int), typeof(GrabbableObject) });
+            if (switchMethod == null)
+                throw new System.MissingMethodException("PlayerControllerB.SwitchToItemSlot");
+
+            switchMethod.Invoke(player, new object[] { actualSlot, mushroom! });
+            Plugin.Log.LogInfo($"Mushroom equipped: slot={actualSlot}, held={mushroom!.isHeld}, pocketed={mushroom.isPocketed}, parent={(mushroom.parentObject == null ? "null" : mushroom.parentObject.name)}");
         }
         catch (System.Exception exception)
         {
